@@ -158,11 +158,10 @@ function initAnalyser() {
   }
   if (analyser) { analyser.disconnect(); }
   analyser = audioCtx.createAnalyser();
-  analyser.fftSize = 2048;
+  analyser.fftSize = 512;
   analyser.smoothingTimeConstant = 0.82;
   bufferLength = analyser.frequencyBinCount;
   dataArray = new Uint8Array(bufferLength);
-  analyser.connect(audioCtx.destination);
 }
 
 async function loadAudio(file) {
@@ -187,6 +186,7 @@ function play() {
   sourceNode = audioCtx.createBufferSource();
   sourceNode.buffer = audioBuffer;
   sourceNode.connect(analyser);
+  analyser.connect(audioCtx.destination);
   sourceNode.start(0, pauseOffset % audioBuffer.duration);
   startTime = audioCtx.currentTime - pauseOffset;
   isPlaying = true;
@@ -280,9 +280,17 @@ document.getElementById('btnHide').addEventListener('click', () => {
   // artist name stays always
 });
 
+canvas.addEventListener('click', () => {
+  if (!uiVisible) {
+    uiVisible = true;
+    uiEl.classList.remove('hidden');
+    statusEl.classList.remove('hidden');
+  }
+});
+
 // ── Audio analysis helpers ────────────────────────────────
 function getVolume() {
-  if (!analyser || !isPlaying) return 0;
+  if (!analyser) return 0;
   analyser.getByteFrequencyData(dataArray);
   let sum = 0;
   for (let i = 0; i < bufferLength; i++) sum += dataArray[i];
