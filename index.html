@@ -453,6 +453,40 @@ function detectBeat(bass) {
   beatFlash *= 0.85;
 }
 
+const STAR_MAX = 200;
+const stars = [];
+
+function initStars() {
+  for (let i = 0; i < STAR_MAX; i++) {
+    stars.push({
+      x: Math.random() * W,
+      y: Math.random() * H,
+      size: 0.5 + Math.random() * 2,
+      phase: Math.random() * Math.PI * 2,
+      color: ['#ffffff','#ff00aa','#00ffcc','#aa00ff'][Math.floor(Math.random()*4)]
+    });
+  }
+}
+initStars();
+
+function drawStars(vol, bass, mid) {
+  ctx.save();
+  ctx.globalCompositeOperation = 'screen';
+  const visible = Math.floor(vol * STAR_MAX * 2.5);
+  for (let i = 0; i < Math.min(visible, STAR_MAX); i++) {
+    const s = stars[i];
+    const flicker = 0.3 + 0.7 * Math.abs(Math.sin(t * 2 + s.phase));
+    const dx = Math.sin(t * 1.5 + s.phase) * bass * 18;
+    const dy = Math.cos(t * 1.2 + s.phase) * mid  * 18;
+    ctx.globalAlpha = flicker * vol * 1.5;
+    ctx.fillStyle = s.color;
+    ctx.beginPath();
+    ctx.arc(s.x + dx, s.y + dy, s.size * (1 + vol * 2), 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.restore();
+}
+
 // パーティクルシステム
 const particles = [];
 const MAX_PARTICLES = 120;
@@ -561,6 +595,7 @@ function render() {
 
   drawPulse(R, vol, bass, bassColor, 0.85);
   drawBloom(vol, bass, bassColor);
+  drawStars(vol, bass, mid);
 
   spawnParticles(bass, vol, bassColor);
   updateParticles();
