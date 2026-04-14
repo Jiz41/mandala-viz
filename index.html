@@ -490,21 +490,26 @@ function render() {
 
   ctx.globalCompositeOperation = 'screen';
 
+  // 周波数帯ごとの色（PALETTEで色調テーマが変わる）
+  const bassColor = [pal[0], pal[0], pal[1], pal[1]]; // 低音：赤〜オレンジ系
+  const midColor  = [pal[2], pal[2], pal[3], pal[3]]; // 中音：緑〜シアン系
+  const highColor = [pal[1], pal[3], pal[1], pal[3]]; // 高音：青〜紫系
+
   if (mode === 'mandala' || mode === 'all') {
-    drawMandala(R * 0.95, 12, vol, bass, mid, high, pal, 0.9, 0);
-    drawMandala(R * 0.55, 8,  vol, bass, mid, high, pal, 0.6, Math.PI / 8);
-    drawMandala(R * 0.28, 6,  vol, bass, mid, high, pal, 0.5, Math.PI / 6);
+    drawMandala(R * 0.95, 12, vol, bass, mid, high, bassColor, 0.9, 0);
+    drawMandala(R * 0.55, 8,  vol, bass, mid, high, midColor,  0.6, Math.PI / 8);
+    drawMandala(R * 0.28, 6,  vol, bass, mid, high, highColor, 0.5, Math.PI / 6);
   }
   if (mode === 'star' || mode === 'all') {
-    drawStarBurst(R * 0.85, 7, vol, bass, high, pal, 0.5, 0);
-    drawStarBurst(R * 0.50, 5, vol, bass, high, pal, 0.4, Math.PI / 5);
+    drawStarBurst(R * 0.85, 7, vol, bass, high, bassColor, 0.5, 0);
+    drawStarBurst(R * 0.50, 5, vol, bass, high, highColor, 0.4, Math.PI / 5);
   }
   if (mode === 'web' || mode === 'all') {
-    drawWeb(R, 6, 16, vol, bass, mid, pal, 0.6);
+    drawWeb(R, 6, 16, vol, bass, mid, midColor, 0.6);
   }
 
-  drawPulse(R, vol, bass, pal, 0.85);
-  drawBloom(vol, bass, pal);
+  drawPulse(R, vol, bass, bassColor, 0.85);
+  drawBloom(vol, bass, bassColor);
 
   // Beat flash overlay
   if (beatFlash > 0.05) {
