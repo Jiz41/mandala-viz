@@ -159,7 +159,7 @@ function initAnalyser() {
   if (analyser) { analyser.disconnect(); }
   analyser = audioCtx.createAnalyser();
   analyser.fftSize = 512;
-  analyser.smoothingTimeConstant = 0.82;
+  analyser.smoothingTimeConstant = 0.2;
   bufferLength = analyser.frequencyBinCount;
   dataArray = new Uint8Array(bufferLength);
 }
@@ -306,9 +306,9 @@ function getBand(s, e) {
 // ── Draw ──────────────────────────────────────────────────
 function drawMandala(radius, segments, vol, bass, mid, high, pal, alpha, rotOffset) {
   const step = (Math.PI * 2) / segments;
-  const innerR  = radius * (0.3 + bass * 0.4);
-  const outerR  = radius * (0.65 + vol * 0.6);
-  const petalAmp = radius * 0.2 * (1 + mid * 2);
+  const innerR  = radius * (0.2 + bass * 1.2);
+  const outerR  = radius * (0.5 + vol * 1.5);
+  const petalAmp = radius * 0.25 * (1 + mid * 4);
   const twist = t * 0.4 + rotOffset;
 
   for (let s = 0; s < segments; s++) {
@@ -465,10 +465,10 @@ function render() {
   const mode = layerModes[layerIdx];
 
   const rawVol = getVolume();
-  sv += (rawVol        - sv) * 0.14;
-  sb += (getBand(0,10) - sb) * 0.16;
-  sm += (getBand(10,80)- sm) * 0.12;
-  sh += (getBand(80,150)-sh) * 0.10;
+  sv = rawVol;
+  sb = getBand(0,10);
+  sm = getBand(10,80);
+  sh = getBand(80,150);
 
   // idle demo when not playing
   if (!isPlaying) {
@@ -484,7 +484,7 @@ function render() {
 
   // Background trail
   ctx.globalCompositeOperation = 'source-over';
-  const fadeAlpha = 0.15 + vol * 0.12 + beatFlash * 0.08;
+  const fadeAlpha = 0.35 + vol * 0.2 + beatFlash * 0.15;
   ctx.fillStyle = `rgba(0,0,0,${fadeAlpha})`;
   ctx.fillRect(0, 0, W, H);
 
