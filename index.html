@@ -10,36 +10,53 @@
     background: #000;
     overflow: hidden;
     display: flex;
-    flex-direction: column;
     align-items: center;
     justify-content: center;
     height: 100vh;
     font-family: 'Courier New', monospace;
   }
   canvas { display: block; touch-action: none; }
+
+  #artist {
+    position: fixed;
+    bottom: 18px;
+    right: 22px;
+    color: rgba(255,255,255,0.55);
+    font-size: 12px;
+    letter-spacing: 0.18em;
+    pointer-events: none;
+    z-index: 20;
+    text-transform: uppercase;
+  }
+
   #ui {
     position: fixed;
     bottom: 24px;
     left: 50%;
     transform: translateX(-50%);
     display: flex;
-    gap: 12px;
+    gap: 10px;
     z-index: 10;
+    transition: opacity 0.4s;
   }
+  #ui.hidden { opacity: 0; pointer-events: none; }
+
   .btn {
     background: rgba(255,255,255,0.08);
     border: 1px solid rgba(255,255,255,0.25);
     color: #fff;
-    padding: 10px 22px;
+    padding: 10px 20px;
     border-radius: 999px;
-    font-size: 13px;
+    font-size: 12px;
     letter-spacing: 0.1em;
     cursor: pointer;
     backdrop-filter: blur(8px);
     transition: background 0.2s, border-color 0.2s;
+    white-space: nowrap;
   }
-  .btn:active { background: rgba(255,255,255,0.18); }
-  .btn.active { border-color: #f0a; background: rgba(255,0,170,0.18); }
+  .btn:active { background: rgba(255,255,255,0.2); }
+  .btn.active { border-color: #f0a; background: rgba(255,0,170,0.2); }
+
   #status {
     position: fixed;
     top: 18px;
@@ -49,197 +66,334 @@
     font-size: 11px;
     letter-spacing: 0.15em;
     pointer-events: none;
+    z-index: 20;
+    transition: opacity 0.4s;
+  }
+  #status.hidden { opacity: 0; }
+
+  /* ファイル選択を隠してボタンで代用 */
+  #fileInput { display: none; }
+
+  #dropzone {
+    position: fixed;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+    z-index: 30;
+    background: rgba(0,0,0,0.85);
+    transition: opacity 0.5s;
+  }
+  #dropzone.hidden { opacity: 0; pointer-events: none; }
+  #dropzone p {
+    color: rgba(255,255,255,0.5);
+    font-size: 12px;
+    letter-spacing: 0.15em;
+  }
+  #dropzone .big-btn {
+    background: rgba(255,255,255,0.06);
+    border: 1px solid rgba(255,255,255,0.3);
+    color: #fff;
+    padding: 16px 40px;
+    border-radius: 999px;
+    font-size: 15px;
+    letter-spacing: 0.15em;
+    cursor: pointer;
   }
 </style>
 </head>
 <body>
+
 <canvas id="c"></canvas>
-<div id="status">TAP START TO BEGIN</div>
+<div id="artist">Mushyn Reagan</div>
+<div id="status">READY</div>
+
+<!-- 初期画面 -->
+<div id="dropzone">
+  <p>MANDALA VISUALIZER</p>
+  <button class="big-btn" id="btnLoad">♪ MP3 を選ぶ</button>
+  <p style="font-size:10px;opacity:0.4;">または画面にファイルをドロップ</p>
+</div>
+
+<input type="file" id="fileInput" accept="audio/*">
+
+<!-- コントロール -->
 <div id="ui">
-  <button class="btn" id="btnStart">▶ START MIC</button>
+  <button class="btn" id="btnFile">♪ 変更</button>
+  <button class="btn" id="btnPlayPause">▶ PLAY</button>
   <button class="btn" id="btnColor">PALETTE</button>
   <button class="btn" id="btnLayers">LAYERS</button>
+  <button class="btn" id="btnHide">◉ REC</button>
 </div>
+
 <script>
+// ── Canvas setup ──────────────────────────────────────────
 const canvas = document.getElementById('c');
 const ctx = canvas.getContext('2d');
-const status = document.getElementById('status');
+let W, H, cx, cy, minDim, R;
 
-let W, H, cx, cy, minDim;
 function resize() {
-  W = canvas.width = window.innerWidth;
+  W = canvas.width  = window.innerWidth;
   H = canvas.height = window.innerHeight;
   cx = W / 2; cy = H / 2;
   minDim = Math.min(W, H);
+  R = minDim * 0.42;
 }
 resize();
 window.addEventListener('resize', resize);
 
+// ── Audio ─────────────────────────────────────────────────
 let audioCtx, analyser, dataArray, bufferLength;
-let isRunning = false;
-let micStream = null;
+let sourceNode = null;
+let audioBuffer = null;
+let startTime = 0;
+let pauseOffset = 0;
+let isPlaying = false;
 
-async function startMic() {
-  try {
+function initAnalyser() {
+  if (!audioCtx) {
     audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
-    micStream = stream;
-    const source = audioCtx.createMediaStreamSource(stream);
-    analyser = audioCtx.createAnalyser();
-    analyser.fftSize = 1024;
-    analyser.smoothingTimeConstant = 0.8;
-    bufferLength = analyser.frequencyBinCount;
-    dataArray = new Uint8Array(bufferLength);
-    source.connect(analyser);
-    isRunning = true;
-    status.textContent = '● LISTENING';
-    document.getElementById('btnStart').textContent = '■ STOP';
-    document.getElementById('btnStart').classList.add('active');
-  } catch(e) {
-    status.textContent = 'MIC ERROR: ' + e.message;
+  }
+  if (analyser) { analyser.disconnect(); }
+  analyser = audioCtx.createAnalyser();
+  analyser.fftSize = 2048;
+  analyser.smoothingTimeConstant = 0.82;
+  bufferLength = analyser.frequencyBinCount;
+  dataArray = new Uint8Array(bufferLength);
+  analyser.connect(audioCtx.destination);
+}
+
+async function loadAudio(file) {
+  setStatus('LOADING...');
+  if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  if (sourceNode) { try { sourceNode.stop(); } catch(e){} sourceNode = null; }
+  isPlaying = false;
+
+  const ab = await file.arrayBuffer();
+  audioBuffer = await audioCtx.decodeAudioData(ab);
+  initAnalyser();
+  pauseOffset = 0;
+  document.getElementById('dropzone').classList.add('hidden');
+  setStatus('READY  ▶ PLAY');
+  document.getElementById('btnPlayPause').textContent = '▶ PLAY';
+  document.getElementById('btnPlayPause').classList.remove('active');
+}
+
+function play() {
+  if (!audioBuffer || !audioCtx) return;
+  if (audioCtx.state === 'suspended') audioCtx.resume();
+  sourceNode = audioCtx.createBufferSource();
+  sourceNode.buffer = audioBuffer;
+  sourceNode.connect(analyser);
+  sourceNode.start(0, pauseOffset % audioBuffer.duration);
+  startTime = audioCtx.currentTime - pauseOffset;
+  isPlaying = true;
+  sourceNode.onended = () => {
+    if (isPlaying) {
+      isPlaying = false;
+      pauseOffset = 0;
+      document.getElementById('btnPlayPause').textContent = '▶ PLAY';
+      document.getElementById('btnPlayPause').classList.remove('active');
+      setStatus('FINISHED');
+    }
+  };
+  document.getElementById('btnPlayPause').textContent = '❙❙ PAUSE';
+  document.getElementById('btnPlayPause').classList.add('active');
+  setStatus('● PLAYING');
+}
+
+function pause() {
+  if (!sourceNode) return;
+  pauseOffset = audioCtx.currentTime - startTime;
+  try { sourceNode.stop(); } catch(e){}
+  sourceNode = null;
+  isPlaying = false;
+  document.getElementById('btnPlayPause').textContent = '▶ PLAY';
+  document.getElementById('btnPlayPause').classList.remove('active');
+  setStatus('PAUSED');
+}
+
+// ── UI ───────────────────────────────────────────────────
+const fileInput = document.getElementById('fileInput');
+const statusEl  = document.getElementById('status');
+const uiEl      = document.getElementById('ui');
+let uiVisible   = true;
+let statusTimer = null;
+
+function setStatus(msg, timeout) {
+  statusEl.textContent = msg;
+  if (timeout) {
+    clearTimeout(statusTimer);
+    statusTimer = setTimeout(() => { statusEl.textContent = isPlaying ? '● PLAYING' : ''; }, timeout);
   }
 }
 
-function stopMic() {
-  if (micStream) { micStream.getTracks().forEach(t => t.stop()); micStream = null; }
-  if (audioCtx) { audioCtx.close(); audioCtx = null; }
-  isRunning = false;
-  analyser = null;
-  status.textContent = 'STOPPED';
-  document.getElementById('btnStart').textContent = '▶ START MIC';
-  document.getElementById('btnStart').classList.remove('active');
-}
+document.getElementById('btnLoad').addEventListener('click', () => fileInput.click());
+document.getElementById('btnFile').addEventListener('click', () => fileInput.click());
 
-document.getElementById('btnStart').addEventListener('click', () => {
-  if (isRunning) stopMic(); else startMic();
+fileInput.addEventListener('change', e => {
+  if (e.target.files[0]) loadAudio(e.target.files[0]);
 });
 
+// Drag & drop
+document.addEventListener('dragover', e => e.preventDefault());
+document.addEventListener('drop', e => {
+  e.preventDefault();
+  const f = e.dataTransfer.files[0];
+  if (f && f.type.startsWith('audio/')) loadAudio(f);
+});
+
+document.getElementById('btnPlayPause').addEventListener('click', () => {
+  if (!audioBuffer) return;
+  isPlaying ? pause() : play();
+});
+
+// Palette
 const palettes = [
   ['#ff00aa','#aa00ff','#00ffcc','#ff6600'],
   ['#00ffff','#0077ff','#7700ff','#ffffff'],
   ['#ffdd00','#ff4400','#ff0077','#ffaa00'],
-  ['#00ff88','#00ccff','#88ff00','#ffffff'],
+  ['#00ff88','#00ccff','#88ff00','#ccffcc'],
   ['#ff88cc','#cc44ff','#44ccff','#ffcc44'],
 ];
 let palIdx = 0;
 document.getElementById('btnColor').addEventListener('click', () => {
   palIdx = (palIdx + 1) % palettes.length;
+  setStatus('PALETTE ' + (palIdx + 1), 1200);
 });
 
+// Layers
 const layerModes = ['mandala','star','web','all'];
 let layerIdx = 3;
 document.getElementById('btnLayers').addEventListener('click', () => {
   layerIdx = (layerIdx + 1) % layerModes.length;
-  status.textContent = layerModes[layerIdx].toUpperCase();
-  setTimeout(() => { if (isRunning) status.textContent = '● LISTENING'; }, 1000);
+  setStatus(layerModes[layerIdx].toUpperCase(), 1200);
 });
 
-let t = 0;
-let smoothVol = 0, smoothBass = 0, smoothMid = 0, smoothHigh = 0;
+// REC mode: hide UI & status
+document.getElementById('btnHide').addEventListener('click', () => {
+  uiVisible = !uiVisible;
+  uiEl.classList.toggle('hidden', !uiVisible);
+  statusEl.classList.toggle('hidden', !uiVisible);
+  // artist name stays always
+});
 
-function getFreqBand(start, end) {
-  if (!analyser) return 0;
-  let sum = 0;
-  for (let i = start; i < end; i++) sum += dataArray[i];
-  return sum / ((end - start) * 255);
-}
-
+// ── Audio analysis helpers ────────────────────────────────
 function getVolume() {
-  if (!analyser) return 0;
+  if (!analyser || !isPlaying) return 0;
   analyser.getByteFrequencyData(dataArray);
   let sum = 0;
   for (let i = 0; i < bufferLength; i++) sum += dataArray[i];
   return sum / (bufferLength * 255);
 }
+function getBand(s, e) {
+  if (!analyser) return 0;
+  let sum = 0;
+  for (let i = s; i < e; i++) sum += dataArray[i];
+  return sum / ((e - s) * 255);
+}
 
+// ── Draw ──────────────────────────────────────────────────
 function drawMandala(radius, segments, vol, bass, mid, high, pal, alpha, rotOffset) {
   const step = (Math.PI * 2) / segments;
-  const innerR = radius * (0.3 + bass * 0.3);
-  const outerR = radius * (0.7 + vol * 0.5);
-  const petalAmp = radius * 0.18 * (1 + mid * 1.5);
+  const innerR  = radius * (0.3 + bass * 0.4);
+  const outerR  = radius * (0.65 + vol * 0.6);
+  const petalAmp = radius * 0.2 * (1 + mid * 2);
   const twist = t * 0.4 + rotOffset;
+
   for (let s = 0; s < segments; s++) {
-    const angle = step * s + twist;
+    const angle     = step * s + twist;
     const nextAngle = step * (s + 1) + twist;
-    const midAngle = (angle + nextAngle) / 2;
+    const midAngle  = (angle + nextAngle) / 2;
+
     ctx.save();
-    ctx.globalAlpha = alpha * (0.5 + vol * 0.5);
+    ctx.globalAlpha = alpha * (0.45 + vol * 0.55);
     ctx.beginPath();
-    const x1 = cx + Math.cos(angle) * innerR;
-    const y1 = cy + Math.sin(angle) * innerR;
-    const x2 = cx + Math.cos(angle) * outerR;
-    const y2 = cy + Math.sin(angle) * outerR;
+    const x1  = cx + Math.cos(angle) * innerR;
+    const y1  = cy + Math.sin(angle) * innerR;
+    const x2  = cx + Math.cos(angle) * outerR;
+    const y2  = cy + Math.sin(angle) * outerR;
     const cpx = cx + Math.cos(midAngle) * (outerR + petalAmp);
     const cpy = cy + Math.sin(midAngle) * (outerR + petalAmp);
     const cp2x = cx + Math.cos(nextAngle) * innerR;
     const cp2y = cy + Math.sin(nextAngle) * innerR;
+
     ctx.moveTo(x1, y1);
     ctx.quadraticCurveTo(cpx, cpy, x2, y2);
     ctx.lineTo(cx + Math.cos(nextAngle) * outerR, cy + Math.sin(nextAngle) * outerR);
     ctx.quadraticCurveTo(cpx, cpy, cp2x, cp2y);
     ctx.closePath();
-    const grad = ctx.createRadialGradient(cx, cy, innerR, cx, cy, outerR + petalAmp);
-    grad.addColorStop(0, pal[s % pal.length] + '88');
-    grad.addColorStop(1, pal[(s + 1) % pal.length] + '22');
+
+    const grad = ctx.createRadialGradient(cx, cy, innerR * 0.5, cx, cy, outerR + petalAmp);
+    grad.addColorStop(0, pal[s % pal.length] + 'aa');
+    grad.addColorStop(1, pal[(s + 1) % pal.length] + '11');
     ctx.fillStyle = grad;
     ctx.fill();
-    ctx.strokeStyle = pal[s % pal.length] + 'aa';
-    ctx.lineWidth = 0.5 + high * 1.5;
+    ctx.strokeStyle = pal[s % pal.length] + 'cc';
+    ctx.lineWidth = 0.5 + high * 2;
     ctx.stroke();
     ctx.restore();
   }
 }
 
 function drawStarBurst(radius, points, vol, bass, high, pal, alpha, rotOffset) {
-  const step = (Math.PI * 2) / points;
-  const twist = t * 0.6 + rotOffset;
+  const step  = (Math.PI * 2) / points;
+  const twist = t * 0.55 + rotOffset;
   ctx.save();
   ctx.globalAlpha = alpha;
   ctx.beginPath();
   for (let i = 0; i <= points * 2; i++) {
     const angle = (step / 2) * i + twist;
-    const r = (i % 2 === 0) ? radius * (0.7 + vol * 0.6) : radius * (0.25 + bass * 0.25);
+    const r = (i % 2 === 0)
+      ? radius * (0.65 + vol * 0.7)
+      : radius * (0.22 + bass * 0.28);
     const x = cx + Math.cos(angle) * r;
     const y = cy + Math.sin(angle) * r;
     i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
   }
   ctx.closePath();
   const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, radius);
-  grad.addColorStop(0, pal[0] + '55');
+  grad.addColorStop(0,   pal[0] + '66');
   grad.addColorStop(0.6, pal[1] + '33');
-  grad.addColorStop(1, pal[2] + '00');
+  grad.addColorStop(1,   pal[2] + '00');
   ctx.fillStyle = grad;
   ctx.fill();
-  ctx.strokeStyle = pal[3 % pal.length] + 'cc';
-  ctx.lineWidth = 0.8 + high * 2;
+  ctx.strokeStyle = pal[3 % pal.length] + 'dd';
+  ctx.lineWidth = 0.8 + high * 2.5;
   ctx.stroke();
   ctx.restore();
 }
 
 function drawWeb(radius, rings, spokes, vol, bass, mid, pal, alpha) {
+  const twist = t * 0.18;
   ctx.save();
-  ctx.globalAlpha = alpha * 0.7;
-  const twist = t * 0.2;
+  ctx.globalAlpha = alpha * 0.65;
   for (let r = 1; r <= rings; r++) {
-    const rr = (radius / rings) * r * (0.8 + vol * 0.3);
+    const rr = (radius / rings) * r * (0.8 + vol * 0.35);
     ctx.beginPath();
     for (let s = 0; s <= spokes; s++) {
-      const angle = (Math.PI * 2 / spokes) * s + twist * (r % 2 === 0 ? 1 : -1);
-      const wobble = rr * 0.06 * Math.sin(t * 2 + s + r);
-      const x = cx + Math.cos(angle) * (rr + wobble * bass);
-      const y = cy + Math.sin(angle) * (rr + wobble * bass);
+      const angle  = (Math.PI * 2 / spokes) * s + twist * (r % 2 === 0 ? 1 : -1);
+      const wobble = rr * 0.07 * Math.sin(t * 2.2 + s + r) * bass;
+      const x = cx + Math.cos(angle) * (rr + wobble);
+      const y = cy + Math.sin(angle) * (rr + wobble);
       s === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
     }
     ctx.closePath();
-    ctx.strokeStyle = pal[r % pal.length] + Math.floor(80 + mid * 120).toString(16).padStart(2,'0');
-    ctx.lineWidth = 0.5 + mid;
+    const hex = Math.floor(70 + mid * 140).toString(16).padStart(2,'0');
+    ctx.strokeStyle = pal[r % pal.length] + hex;
+    ctx.lineWidth = 0.5 + mid * 1.2;
     ctx.stroke();
   }
   for (let s = 0; s < spokes; s++) {
     const angle = (Math.PI * 2 / spokes) * s + twist;
     ctx.beginPath();
     ctx.moveTo(cx, cy);
-    ctx.lineTo(cx + Math.cos(angle) * radius * (1 + vol * 0.3), cy + Math.sin(angle) * radius * (1 + vol * 0.3));
+    ctx.lineTo(
+      cx + Math.cos(angle) * radius * (1 + vol * 0.35),
+      cy + Math.sin(angle) * radius * (1 + vol * 0.35)
+    );
     ctx.strokeStyle = pal[s % pal.length] + '44';
     ctx.lineWidth = 0.5;
     ctx.stroke();
@@ -247,24 +401,26 @@ function drawWeb(radius, rings, spokes, vol, bass, mid, pal, alpha) {
   ctx.restore();
 }
 
-function drawPulseCircles(radius, vol, bass, pal, alpha) {
+function drawPulse(radius, vol, bass, pal, alpha) {
   ctx.save();
   for (let i = 3; i >= 1; i--) {
-    const r = radius * (0.15 * i) * (1 + bass * 0.8);
+    const r = radius * 0.15 * i * (1 + bass * 1.0);
     ctx.beginPath();
     ctx.arc(cx, cy, r, 0, Math.PI * 2);
-    ctx.strokeStyle = pal[i % pal.length] + Math.floor(40 + vol * 180).toString(16).padStart(2,'0');
-    ctx.lineWidth = 1 + vol * 3;
-    ctx.globalAlpha = alpha * (0.3 + vol * 0.5);
+    const hex = Math.floor(30 + vol * 200).toString(16).padStart(2,'0');
+    ctx.strokeStyle = pal[i % pal.length] + hex;
+    ctx.lineWidth = 1 + vol * 4;
+    ctx.globalAlpha = alpha * (0.25 + vol * 0.6);
     ctx.stroke();
   }
   ctx.restore();
 }
 
 function drawBloom(vol, bass, pal) {
-  const r = minDim * 0.35 * (0.5 + bass * 1.2);
+  const r = minDim * 0.38 * (0.4 + bass * 1.4);
   const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
-  grad.addColorStop(0, pal[0] + Math.floor(vol * 60).toString(16).padStart(2,'0'));
+  const hex = Math.floor(vol * 70).toString(16).padStart(2,'0');
+  grad.addColorStop(0, pal[0] + hex);
   grad.addColorStop(1, '#00000000');
   ctx.save();
   ctx.globalCompositeOperation = 'screen';
@@ -275,28 +431,57 @@ function drawBloom(vol, bass, pal) {
   ctx.restore();
 }
 
+// ── Beat detection ────────────────────────────────────────
+let beatHistory = new Array(30).fill(0);
+let beatFlash = 0;
+
+function detectBeat(bass) {
+  beatHistory.push(bass);
+  beatHistory.shift();
+  const avg = beatHistory.reduce((a,b) => a+b, 0) / beatHistory.length;
+  if (bass > avg * 1.5 && bass > 0.15) {
+    beatFlash = 1.0;
+  }
+  beatFlash *= 0.85;
+}
+
+// ── Render loop ───────────────────────────────────────────
+let t = 0;
+let sv = 0, sb = 0, sm = 0, sh = 0; // smoothed values
+
 function render() {
   requestAnimationFrame(render);
   t += 0.012;
-  const pal = palettes[palIdx];
+
+  const pal  = palettes[palIdx];
   const mode = layerModes[layerIdx];
+
   const rawVol = getVolume();
-  smoothVol += (rawVol - smoothVol) * 0.15;
-  if (analyser) {
-    smoothBass += (getFreqBand(0, 8) - smoothBass) * 0.15;
-    smoothMid  += (getFreqBand(8, 64) - smoothMid) * 0.12;
-    smoothHigh += (getFreqBand(64, 128) - smoothHigh) * 0.1;
-  } else {
-    smoothVol  = 0.08 + Math.sin(t * 1.1) * 0.06;
-    smoothBass = 0.12 + Math.sin(t * 0.7) * 0.08;
-    smoothMid  = 0.08 + Math.sin(t * 1.5) * 0.05;
-    smoothHigh = 0.05 + Math.sin(t * 2.3) * 0.04;
+  sv += (rawVol        - sv) * 0.14;
+  sb += (getBand(0,10) - sb) * 0.16;
+  sm += (getBand(10,80)- sm) * 0.12;
+  sh += (getBand(80,150)-sh) * 0.10;
+
+  // idle demo when not playing
+  if (!isPlaying) {
+    sv = 0.06 + Math.sin(t * 0.9)  * 0.04;
+    sb = 0.10 + Math.sin(t * 0.6)  * 0.06;
+    sm = 0.06 + Math.sin(t * 1.4)  * 0.04;
+    sh = 0.04 + Math.sin(t * 2.1)  * 0.03;
   }
-  const vol = smoothVol, bass = smoothBass, mid = smoothMid, high = smoothHigh;
+
+  detectBeat(sb);
+
+  const vol = sv, bass = sb, mid = sm, high = sh;
+
+  // Background trail
   ctx.globalCompositeOperation = 'source-over';
-  ctx.fillStyle = `rgba(0,0,0,${0.18 + vol * 0.1})`;
+  const fadeAlpha = 0.15 + vol * 0.12 + beatFlash * 0.08;
+  ctx.fillStyle = `rgba(0,0,0,${fadeAlpha})`;
   ctx.fillRect(0, 0, W, H);
+
   ctx.globalCompositeOperation = 'screen';
+
   if (mode === 'mandala' || mode === 'all') {
     drawMandala(R * 0.95, 12, vol, bass, mid, high, pal, 0.9, 0);
     drawMandala(R * 0.55, 8,  vol, bass, mid, high, pal, 0.6, Math.PI / 8);
@@ -304,16 +489,26 @@ function render() {
   }
   if (mode === 'star' || mode === 'all') {
     drawStarBurst(R * 0.85, 7, vol, bass, high, pal, 0.5, 0);
-    drawStarBurst(R * 0.5,  5, vol, bass, high, pal, 0.4, Math.PI / 5);
+    drawStarBurst(R * 0.50, 5, vol, bass, high, pal, 0.4, Math.PI / 5);
   }
   if (mode === 'web' || mode === 'all') {
     drawWeb(R, 6, 16, vol, bass, mid, pal, 0.6);
   }
-  drawPulseCircles(R, vol, bass, pal, 0.8);
+
+  drawPulse(R, vol, bass, pal, 0.85);
   drawBloom(vol, bass, pal);
+
+  // Beat flash overlay
+  if (beatFlash > 0.05) {
+    ctx.save();
+    ctx.globalCompositeOperation = 'screen';
+    ctx.globalAlpha = beatFlash * 0.12;
+    ctx.fillStyle = pal[0];
+    ctx.fillRect(0, 0, W, H);
+    ctx.restore();
+  }
 }
 
-const R = minDim * 0.42;
 render();
 </script>
 </body>
